@@ -18,11 +18,16 @@ script:onLoad(function ()
     end
 end)
 
-scheduler:runRepeatingAsync(function ()
+local function check()
     local topPlayerName = PlaceholderAPI:setPlaceholders(nil, "%ajlb_lb_vault_eco_balance_1_alltime_name%")
-    if not topPlayerName or topPlayerName == "" then
+    if not topPlayerName or topPlayerName == "" or topPlayerName == "---" then
         print("No baltop player found.")
         return
+    end
+    if topPlayerName == "Loading" then
+        print("Baltop player is still loading, trying again in 30 seconds.")
+        scheduler:runDelayedAsync(check, 30 * 20) -- Try again in 30 seconds
+        return 
     end
 
     print("Top player: " .. topPlayerName)
@@ -48,8 +53,13 @@ scheduler:runRepeatingAsync(function ()
     -- If we reach this point, we know the top player has changed and we can proceed to give them the rank and remove it from the last player
     
     local lpUser = LuckPermsProvider:get():getUserManager():loadUser(topPlayer:getUniqueId(), topPlayerName):join()
+    local node = InheritanceNode:builder(config.rank)
+            :value(true)
+    for i = 1, #config.serverNames do
+        node:withContext("server", config.serverNames[i])
+    end
     lpUser:data():add(
-        InheritanceNode:builder(config.rank):value(true):build()
+        node:build()
     )
     LuckPermsProvider:get():getUserManager():saveUser(lpUser)
 
@@ -67,9 +77,19 @@ scheduler:runRepeatingAsync(function ()
         print("Trying to remove rank from last player with UUID: " .. lastPlayerUUID)
         local lastLpUser = LuckPermsProvider:get():getUserManager():loadUser(UUID:fromString(lastPlayerUUID)):join()
         ---@cast lastLpUser net.luckperms.api.model.user.User
-        lastLpUser:data():remove(InheritanceNode:builder(config.rank):value(true):build())
+        lastLpUser:data():remove(node:build())
         LuckPermsProvider:get():getUserManager():saveUser(lastLpUser)
         print("Removed rank " .. config.rank .. " from player " .. lastLpUser:getUsername())
     end
+end
 
-end, 0, CHECK_INTERVAL_TICKS)
+scheduler:runRepeatingAsync(check, 0, CHECK_INTERVAL_TICKS)
+
+script:registerCommand(function (sender, args)
+    check()
+end, {
+    name = "force-baltop-check",
+    description = "Forces a check for the top player and gives them the rank",
+    usage = "/force-baltop-check",
+    permission = "gal8xy.forcebaltopcheck",
+})
